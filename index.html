@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eieruhr</title>
+    <link rel="manifest" href="manifest.json">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000000;
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        .menu-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 250px;
+            height: auto;
+            z-index: 20;
+            cursor: pointer;
+        }
+
+        .menu-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: min(280px, 85vw);
+            height: 100vh;
+            background: #111;
+            border-right: 1px solid #333;
+            padding: 100px 24px 24px;
+            z-index: 15;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+        }
+
+        .menu-panel.open {
+            transform: translateX(0);
+        }
+
+        .menu-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 14;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+        }
+
+        .menu-backdrop.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .menu-panel h2 {
+            color: #fff;
+            font-size: 18px;
+            font-weight: normal;
+            margin: 0 0 20px;
+            letter-spacing: 0.05em;
+        }
+
+        .menu-option {
+            display: block;
+            width: 100%;
+            padding: 14px 16px;
+            margin-bottom: 8px;
+            border: 1px solid #444;
+            background: transparent;
+            color: #fff;
+            font-size: 18px;
+            font-family: inherit;
+            text-align: left;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .menu-option:hover {
+            background: #222;
+        }
+
+        .menu-option.active {
+            border-color: #fff;
+            background: #222;
+        }
+
+        .menu-divider {
+            border: none;
+            border-top: 1px solid #333;
+            margin: 16px 0;
+        }
+
+        .custom-timer {
+            color: #fff;
+        }
+
+        .custom-timer legend {
+            font-size: 16px;
+            margin-bottom: 12px;
+            padding: 0;
+        }
+
+        .custom-timer-fields {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .custom-timer-field label {
+            display: block;
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 4px;
+        }
+
+        .custom-timer-field input {
+            width: 100%;
+            padding: 10px 8px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #000;
+            color: #fff;
+            font-size: 18px;
+            font-family: inherit;
+            text-align: center;
+            -moz-appearance: textfield;
+        }
+
+        .custom-timer-field input::-webkit-outer-spin-button,
+        .custom-timer-field input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .custom-timer-field input:focus {
+            outline: none;
+            border-color: #fff;
+        }
+
+        .custom-timer-apply {
+            width: 100%;
+        }
+
+        .custom-timer.active legend {
+            color: #fff;
+        }
+
+        .custom-timer-error {
+            color: #f66;
+            font-size: 13px;
+            min-height: 1.2em;
+            margin: 0 0 8px;
+        }
+
+        .menu-panel {
+            overflow-y: auto;
+        }
+
+        .content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 80px 20px 40px;
+            gap: 48px;
+        }
+
+        .timer {
+            font-size: 60px;
+            color: #fff;
+            font-family: 'Roboto', sans-serif;
+            text-align: center;
+            max-width: 100%;
+        }
+
+        .timer.long {
+            font-size: 48px;
+        }
+
+        .egg {
+            width: 400px;
+            height: auto;
+            display: block;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .btn {
+            width: 150px;
+            height: auto;
+            cursor: pointer;
+        }
+
+        .btn-reset {
+            padding: 12px 28px;
+            border: 1px solid #666;
+            border-radius: 4px;
+            background: transparent;
+            color: #fff;
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+        }
+
+        .btn-reset:hover {
+            border-color: #fff;
+            background: #222;
+        }
+    </style>
+
+    <script>
+        const MIN_DURATION_MS = 1000;
+        const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
+
+        let alarm = new Audio('alarm.wav');
+        let timerState = 'idle';
+        let timerIntervalId = null;
+        let endTime = 0;
+        let remainingMs = 0;
+        let timerDurationMs = 5 * 60 * 1000;
+        let timerEl;
+        let menuPanel;
+        let menuBackdrop;
+        let customTimerEl;
+        let customErrorEl;
+
+        function isTimerLocked() {
+            return timerState === 'running' || timerState === 'paused';
+        }
+
+        function pad2(n) {
+            return String(n).padStart(2, '0');
+        }
+
+        function formatDurationMs(ms) {
+            const totalSec = Math.max(0, Math.ceil(ms / 1000));
+            const hours = Math.floor(totalSec / 3600);
+            const minutes = Math.floor((totalSec % 3600) / 60);
+            const seconds = totalSec % 60;
+
+            if (hours > 0) {
+                return pad2(hours) + ' : ' + pad2(minutes) + ' : ' + pad2(seconds);
+            }
+            return pad2(minutes) + ' : ' + pad2(seconds);
+        }
+
+        function updateTimerDisplay() {
+            const hasHours = timerDurationMs >= 60 * 60 * 1000;
+            timerEl.textContent = formatDurationMs(timerDurationMs);
+            timerEl.classList.toggle('long', hasHours);
+        }
+
+        function setActiveSelection(mode, minutes) {
+            document.querySelectorAll('.menu-option[data-minutes]').forEach(function (btn) {
+                btn.classList.toggle('active', mode === 'preset' && Number(btn.dataset.minutes) === minutes);
+            });
+            customTimerEl.classList.toggle('active', mode === 'custom');
+        }
+
+        function setPresetMinutes(minutes) {
+            if (isTimerLocked()) return;
+            timerDurationMs = minutes * 60 * 1000;
+            setActiveSelection('preset', minutes);
+            customErrorEl.textContent = '';
+            updateTimerDisplay();
+            closeMenu();
+        }
+
+        function readCustomDurationMs() {
+            const hours = parseInt(document.getElementById('custom-hours').value, 10) || 0;
+            const minutes = parseInt(document.getElementById('custom-minutes').value, 10) || 0;
+            const seconds = parseInt(document.getElementById('custom-seconds').value, 10) || 0;
+            return (hours * 3600 + minutes * 60 + seconds) * 1000;
+        }
+
+        function syncCustomInputsFromMs(ms) {
+            const totalSec = Math.floor(ms / 1000);
+            document.getElementById('custom-hours').value = Math.floor(totalSec / 3600);
+            document.getElementById('custom-minutes').value = Math.floor((totalSec % 3600) / 60);
+            document.getElementById('custom-seconds').value = totalSec % 60;
+        }
+
+        function applyCustomTimer() {
+            if (isTimerLocked()) return;
+
+            const durationMs = readCustomDurationMs();
+
+            if (durationMs < MIN_DURATION_MS) {
+                customErrorEl.textContent = 'Mindestens 1 Sekunde.';
+                return;
+            }
+            if (durationMs > MAX_DURATION_MS) {
+                customErrorEl.textContent = 'Maximal 24 Stunden.';
+                return;
+            }
+
+            timerDurationMs = durationMs;
+            setActiveSelection('custom');
+            customErrorEl.textContent = '';
+            updateTimerDisplay();
+            closeMenu();
+        }
+
+        function openMenu() {
+            menuPanel.classList.add('open');
+            menuBackdrop.classList.add('open');
+        }
+
+        function closeMenu() {
+            menuPanel.classList.remove('open');
+            menuBackdrop.classList.remove('open');
+        }
+
+        function toggleMenu() {
+            if (menuPanel.classList.contains('open')) {
+                closeMenu();
+            } else {
+                openMenu();
+            }
+        }
+
+        function updateRunningDisplay(timeLeft) {
+            timerEl.textContent = formatDurationMs(timeLeft);
+            timerEl.classList.toggle('long', timeLeft >= 60 * 60 * 1000);
+        }
+
+        function stopInterval() {
+            if (timerIntervalId !== null) {
+                clearInterval(timerIntervalId);
+                timerIntervalId = null;
+            }
+        }
+
+        function tick() {
+            const timeLeft = endTime - Date.now();
+
+            if (timeLeft > 0) {
+                remainingMs = timeLeft;
+                updateRunningDisplay(timeLeft);
+            } else {
+                stopInterval();
+                timerState = 'idle';
+                remainingMs = 0;
+                alarm.play();
+                updateRunningDisplay(0);
+                timerEl.classList.remove('long');
+            }
+        }
+
+        function startInterval() {
+            stopInterval();
+            timerIntervalId = setInterval(tick, 1000);
+            tick();
+        }
+
+        function toggleTimer() {
+            if (timerState === 'idle') {
+                remainingMs = timerDurationMs;
+                endTime = Date.now() + remainingMs;
+                timerState = 'running';
+                startInterval();
+                return;
+            }
+
+            if (timerState === 'running') {
+                remainingMs = Math.max(0, endTime - Date.now());
+                stopInterval();
+                timerState = 'paused';
+                updateRunningDisplay(remainingMs);
+                return;
+            }
+
+            if (timerState === 'paused') {
+                endTime = Date.now() + remainingMs;
+                timerState = 'running';
+                startInterval();
+            }
+        }
+
+        function resetTimer() {
+            stopInterval();
+            timerState = 'idle';
+            remainingMs = 0;
+            endTime = 0;
+            alarm.pause();
+            alarm.currentTime = 0;
+            updateTimerDisplay();
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            timerEl = document.getElementById('timer');
+            menuPanel = document.getElementById('menu-panel');
+            menuBackdrop = document.getElementById('menu-backdrop');
+            customTimerEl = document.getElementById('custom-timer');
+            customErrorEl = document.getElementById('custom-timer-error');
+
+            document.getElementById('menu-btn').addEventListener('click', toggleMenu);
+            menuBackdrop.addEventListener('click', closeMenu);
+
+            document.querySelectorAll('.menu-option[data-minutes]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    setPresetMinutes(Number(btn.dataset.minutes));
+                });
+            });
+
+            document.getElementById('custom-timer-apply').addEventListener('click', applyCustomTimer);
+            document.getElementById('reset-btn').addEventListener('click', resetTimer);
+
+            syncCustomInputsFromMs(timerDurationMs);
+            setActiveSelection('preset', 5);
+            updateTimerDisplay();
+        });
+    </script>
+
+
+</head>
+
+<body>
+    <div class="menu-backdrop" id="menu-backdrop"></div>
+
+    <nav class="menu-panel" id="menu-panel" aria-label="Timer options">
+        <h2>Eieruhr</h2>
+        <button type="button" class="menu-option active" data-minutes="5">5 Minuten</button>
+        <button type="button" class="menu-option" data-minutes="7">7 Minuten</button>
+        <button type="button" class="menu-option" data-minutes="10">10 Minuten</button>
+
+        <hr class="menu-divider">
+
+        <fieldset class="custom-timer" id="custom-timer">
+            <legend>Eigene Zeit</legend>
+            <div class="custom-timer-fields">
+                <div class="custom-timer-field">
+                    <label for="custom-hours">Std</label>
+                    <input type="number" id="custom-hours" min="0" max="24" value="0" inputmode="numeric">
+                </div>
+                <div class="custom-timer-field">
+                    <label for="custom-minutes">Min</label>
+                    <input type="number" id="custom-minutes" min="0" max="59" value="0" inputmode="numeric">
+                </div>
+                <div class="custom-timer-field">
+                    <label for="custom-seconds">Sek</label>
+                    <input type="number" id="custom-seconds" min="0" max="59" value="0" inputmode="numeric">
+                </div>
+            </div>
+            <p class="custom-timer-error" id="custom-timer-error" aria-live="polite"></p>
+            <button type="button" class="menu-option custom-timer-apply" id="custom-timer-apply">Übernehmen</button>
+        </fieldset>
+    </nav>
+
+    <img class="menu-btn" id="menu-btn" src="img/menu.png" alt="Menu">
+
+    <main class="content">
+        <img class="egg" src="img/egg.png" alt="Egg">
+
+        <div class="timer" id="timer">05 : 00</div>
+
+        <div class="controls">
+            <img class="btn" onclick="toggleTimer()" src="img/btn.png" alt="Start">
+            <button type="button" class="btn-reset" id="reset-btn">Zurücksetzen</button>
+        </div>
+    </main>
+
+</body>
+</html>
